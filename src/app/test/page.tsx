@@ -37,7 +37,7 @@ export default function TestPage() {
           <p className="text-sm font-semibold text-emerald-600">/test</p>
           <h1 className="text-4xl font-bold leading-tight">システム手帳 PDF テンプレート</h1>
           <p className="max-w-3xl text-lg text-slate-600">
-            ボタンを押すと、サーバーサイドでPDFを生成しダウンロードできます。左右見開きで4分割された週次ページをPDFKitで描画しています。
+            ボタンを押すと、サーバーサイドでPDFを生成しダウンロードできます。左右見開きで4分割された週次ページを手帳風に描画しています。
           </p>
         </header>
 
