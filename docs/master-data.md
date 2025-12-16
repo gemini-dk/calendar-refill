@@ -56,11 +56,12 @@ Firestore 上で共通配信される学務カレンダー系マスターデー�
 
 ## `/calendars_{YYYY}/{calendarId}/calendar_days/{dayId}`
 
-授業日・休講日など日付単位の情報を保持します。`termId` により `calendar_terms` とジョインできます。
+授業日・休講日など日付単位の情報を保持します。**ドキュメント ID は通常 `YYYY-MM`（月単位）となり、その中にキー `YYYY-MM-DD`（これが dayId）で各日付オブジェクトが入る構造です。**
+日付ごとに直接ドキュメントを作成する場合もありますが、いずれも `termId` により `calendar_terms` とジョインできます。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
-| `date` | string | ISO 形式 (`YYYY-MM-DD`) の日付。指定がない場合はドキュメント ID を使用。 |
+| `date` | string | ISO 形式 (`YYYY-MM-DD`) の日付。月ドキュメント内のキー（`dayId`）と一致します。 |
 | `type` | string | 日付の種別（授業日・休講日など）。 |
 | `classWeekday` | number | 授業扱いとする曜日（1=Mon〜7=Sun）。 |
 | `termName` | string | 所属する学期名。 |
