@@ -23,18 +23,26 @@ const monthNames = [
 
 const weekday3 = ["Mon", "Tue", "Wed", "Thr", "Fri", "Sat", "Sun"] as const;
 
-const HEADER_HEIGHT_MM = 8;
-const HEADER_FONT_SIZE_PT = 15;
+const HEADER_HEIGHT_MM = 7;
+const HEADER_FONT_SIZE_PT = 12;
 const DATE_FONT_SIZE_PT = 20;
 const WEEKDAY_FONT_SIZE_PT = 10;
 
 const GRID_LINE_WIDTH_THIN = 0.4;
 const GRID_LINE_WIDTH_THICK = 0.9;
 
+// リフィル向けに「真っ黒/真っ赤」を避けた配色
+const COLOR_TEXT_DEFAULT = "#3F3F46"; // dark gray
+const COLOR_GRID = "#D4D4D8"; // light gray
+const COLOR_SAT = "#4A6A8A"; // muted blue
+const COLOR_SUN = "#8A4A4A"; // muted red
+
 const CELL_PADDING_MM = 0;
-const DAY_LABEL_PADDING_TOP_MM=1.5;
+const DAY_LABEL_PADDING_TOP_MM = 1.5;
 const DAY_LABEL_WIDTH_MM = 9;
 const WEEKDAY_GAP_MM = 0;
+const EVENT_FONT_SIZE_PT = 7;
+const EVENT_BOTTOM_PADDING_MM = 1.5;
 
 const addDaysUtc = (dateUtc: Date, days: number) =>
   new Date(Date.UTC(dateUtc.getUTCFullYear(), dateUtc.getUTCMonth(), dateUtc.getUTCDate() + days));
@@ -75,12 +83,18 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
     "PlayfairDisplay-Medium.ttf",
   );
   const montserratMedium = path.join(fontsDir, "Montserrat", "Montserrat-Medium.ttf");
+  const notoSansJpMedium = path.join(
+    fontsDir,
+    "Noto_Sans_JP",
+    "NotoSansJP-Medium.ttf",
+  );
 
   const hasPlayfair = registerFontIfExists(doc, "pfMedium", playfairMedium);
   const hasMontserrat = registerFontIfExists(doc, "msMedium", montserratMedium);
+  const hasGothic = registerFontIfExists(doc, "jpGothic", notoSansJpMedium);
 
   doc.save();
-  doc.strokeColor("#000000");
+  doc.strokeColor(COLOR_GRID);
 
   // Horizontal lines only
   const hLine = (y: number, width: number) => {
@@ -103,14 +117,13 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
   // Header text (month name(s))
   const monthLabel = monthLabelForRangeUtc(options.startDateUtc, 7);
   if (hasPlayfair) doc.font("pfMedium");
-  doc.fillColor("#000000").fontSize(HEADER_FONT_SIZE_PT);
+  doc.fillColor(COLOR_TEXT_DEFAULT).fontSize(HEADER_FONT_SIZE_PT);
   const headerTextY = top + headerHeight / 2 - doc.currentLineHeight(true) / 2;
   doc.text(monthLabel, left + mmToPt(CELL_PADDING_MM), headerTextY, {
     lineBreak: false,
   });
 
   // Day rows: Monday (top) -> Sunday (bottom)
-  if (hasMontserrat) doc.font("msMedium");
   for (let i = 0; i < 7; i++) {
     const dateUtc = addDaysUtc(options.startDateUtc, i);
     const dayOfMonth = dateUtc.getUTCDate();
@@ -120,6 +133,10 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
     const y = rowY + mmToPt(DAY_LABEL_PADDING_TOP_MM);
     const labelWidth = mmToPt(DAY_LABEL_WIDTH_MM);
 
+    if (hasMontserrat) doc.font("msMedium");
+    if (i === 5) doc.fillColor(COLOR_SAT);
+    else if (i === 6) doc.fillColor(COLOR_SUN);
+    else doc.fillColor(COLOR_TEXT_DEFAULT);
     doc.fontSize(DATE_FONT_SIZE_PT);
     const dateLineHeight = doc.currentLineHeight(true);
     doc.text(String(dayOfMonth), x, y, {
@@ -134,6 +151,32 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
       align: "center",
       lineBreak: false,
     });
+
+    const eventsByIndex: Partial<Record<number, string>> = {
+      0: "春休み",
+      1: "春休み",
+      2: "前期 水曜授業 (1)",
+      3: "前期 木曜授業 (1)",
+      4: "前期 金曜授業 (1)",
+      5: "前期 土曜授業 (1)",
+      6: "前期 日曜",
+    };
+
+    const eventText = eventsByIndex[i];
+    if (eventText) {
+      doc.fillColor(COLOR_TEXT_DEFAULT);
+      if (hasGothic) doc.font("jpGothic");
+      doc.fontSize(EVENT_FONT_SIZE_PT);
+      const eventLineHeight = doc.currentLineHeight(true);
+      const rowBottomY = rowY + rowHeight;
+      const eventY = rowBottomY - mmToPt(EVENT_BOTTOM_PADDING_MM) - eventLineHeight;
+
+      doc.text(eventText, x, eventY, {
+        width: contentWidth,
+        align: "left",
+        lineBreak: false,
+      });
+    }
   }
 
   doc.restore();
