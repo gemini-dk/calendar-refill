@@ -173,6 +173,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing metadata" }, { status: 400 });
   }
 
+  const bucketName =
+    process.env.FIREBASE_STORAGE_BUCKET?.trim() ??
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() ??
+    null;
+
   const db = getDb();
   const userDocRef = db.collection("stripe").doc(metadata.userId);
   const sessionDocRef = metadata.sessionId
@@ -199,6 +204,7 @@ export async function POST(req: NextRequest) {
         sessionId: metadata.sessionId,
         calendarId: metadata.calendarId,
         fiscalYear: metadata.fiscalYear,
+        BUCKET: bucketName,
         buyerEmail: metadata.buyerEmail ?? null,
         lastEventId: event.id,
         processedEventIds: FieldValue.arrayUnion(event.id),

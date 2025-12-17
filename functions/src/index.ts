@@ -15,6 +15,8 @@ type StripeSessionDocument = {
   fiscalYear?: string;
   buyerEmail?: string;
   status?: string;
+  BUCKET?: string;
+  bucket?: string;
 };
 
 function getAdminApp() {
@@ -23,14 +25,14 @@ function getAdminApp() {
   return initializeApp();
 }
 
-function getBucket() {
-  const bucketName = process.env.FIREBASE_STORAGE_BUCKET;
+function getBucket(bucketName: string) {
   const storage = getStorage(getAdminApp());
-  return bucketName ? storage.bucket(bucketName) : storage.bucket();
+  return storage.bucket(bucketName);
 }
 
 export const onStripeSessionPaid = onDocumentWritten(
   {
+    region: "asia-northeast1",
     document: "stripe_sessions/{sessionId}",
     timeoutSeconds: 300,
     memory: "1GiB",
@@ -47,13 +49,37 @@ export const onStripeSessionPaid = onDocumentWritten(
     const calendarId = data?.calendarId?.trim();
     const buyerEmail = data?.buyerEmail?.trim();
     const status = data?.status?.trim();
+    const bucketName = (data?.BUCKET ?? data?.bucket)?.trim();
 
     if (!sessionId || !userId || !fiscalYear || !calendarId) return;
-    if (status !== "paid_processing") return;
 
     const db = getFirestore(getAdminApp());
     const sessionDocRef = db.collection("stripe_sessions").doc(sessionId);
     const stripeDocRef = db.collection("stripe").doc(userId);
+
+    if (status !== "paid_processing") return;
+    if (!bucketName) {
+      logger.error("Missing BUCKET field in stripe_sessions document");
+      await Promise.allSettled([
+        sessionDocRef.set(
+          {
+            status: "failed",
+            statusUpdatedAt: FieldValue.serverTimestamp(),
+            errorMessage: "Missing BUCKET field",
+          },
+          { merge: true },
+        ),
+        stripeDocRef.set(
+          {
+            status: "failed",
+            statusUpdatedAt: FieldValue.serverTimestamp(),
+            errorMessage: "Missing BUCKET field",
+          },
+          { merge: true },
+        ),
+      ]);
+      return;
+    }
 
     let shouldProcess = false;
     try {
@@ -79,7 +105,7 @@ export const onStripeSessionPaid = onDocumentWritten(
 
     try {
       const pdfDoc = new PDFDocument({ autoFirstPage: false, margin: 0 });
-      const fonts = await registerPdfFonts({ bucket: getBucket(), doc: pdfDoc });
+      const fonts = await registerPdfFonts({ bucket: getBucket(bucketName), doc: pdfDoc });
       const pdfBuffer = await generateSystemNotebookPdfBuffer({
         doc: pdfDoc,
         fiscalYear,
@@ -88,23 +114,23 @@ export const onStripeSessionPaid = onDocumentWritten(
         fonts,
       });
 
-      const bucket = getBucket();
+      const bucket = getBucket(bucketName);
       const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
       const filePath = `system-notebook/${userId}/${fiscalYear}-${calendarId}-${Date.now()}.pdf`;
       const file = bucket.file(filePath);
+      const downloadToken = crypto.randomUUID();
 
       await file.save(pdfBuffer, {
         contentType: "application/pdf",
         resumable: false,
         metadata: {
-          metadata: { userId, fiscalYear, calendarId },
+          metadata: { userId, fiscalYear, calendarId, firebaseStorageDownloadTokens: downloadToken },
         },
       });
 
-      const [downloadUrl] = await file.getSignedUrl({
-        action: "read",
-        expires: expiresAt,
-      });
+      const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(
+        bucketName,
+      )}/o/${encodeURIComponent(filePath)}?alt=media&token=${encodeURIComponent(downloadToken)}`;
 
       await Promise.all([
         sessionDocRef.set(
@@ -151,4 +177,3 @@ export const onStripeSessionPaid = onDocumentWritten(
     }
   },
 );
-

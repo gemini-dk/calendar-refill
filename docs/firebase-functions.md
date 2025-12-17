@@ -1,45 +1,55 @@
-# Firebase Functions (Firestore trigger) for PDF generation
+# PDF 生成のための Firebase Functions（Firestore トリガー）
 
-This project can generate PDFs asynchronously via a Firestore trigger instead of an external queue.
+このプロジェクトは、外部キューを使わずに Firestore トリガー経由で PDF を非同期生成できます。
 
-## What it does
+## 何をするものか
 
-- Stripe webhook writes purchase state to:
+- Stripe の Webhook が購入状態を次に書き込みます:
   - `stripe_sessions/{sessionId}`
   - `stripe/{userId}`
-- A Firestore trigger (`functions/src/index.ts`) watches `stripe_sessions/{sessionId}`.
-- When `status` becomes `paid_processing`, it:
-  - sets status to `generating_pdf`
-  - generates the PDF
-  - saves it to Cloud Storage (`system-notebook/{userId}/...pdf`)
-  - writes `stripe/{userId}.downloadUrl`
-  - sets status to `completed` (or `failed` on error)
+- Firestore トリガー（`functions/src/index.ts`）が `stripe_sessions/{sessionId}` を監視します。
+- `status` が `paid_processing` になったら、次を実行します:
+  - `status` を `generating_pdf` に更新
+  - PDF を生成
+  - Cloud Storage に保存（`system-notebook/{userId}/...pdf`）
+  - `stripe/{userId}.downloadUrl` を書き込み
+  - `status` を `completed` に更新（エラー時は `failed`）
 
-## Required environment variables
+### BUCKET フィールド
 
-In the Firebase Functions environment:
+Functions 側では環境変数を使わず、`stripe_sessions/{sessionId}` の `BUCKET` フィールドに書かれた
+バケット名へ PDF を出力します（フォントの取得も同じバケットを参照します）。
 
-- `FIREBASE_STORAGE_BUCKET` (recommended)
-- `PDF_FONTS_GCS_PREFIX` (optional, default: `resources/fonts`)
+## 必要な環境変数
 
-### Fonts
+Firebase Functions の環境で設定します:
 
-PDFKit needs Japanese fonts to render Japanese text correctly.
+- （なし）
 
-Upload the required `.ttf` files to your Storage bucket under:
+### フォント
 
-- `${PDF_FONTS_GCS_PREFIX}/Noto_Sans_JP/NotoSansJP-Medium.ttf`
-- `${PDF_FONTS_GCS_PREFIX}/Noto_Serif_JP/NotoSerifJP-Medium.ttf`
-- `${PDF_FONTS_GCS_PREFIX}/Montserrat/Montserrat-Medium.ttf`
-- `${PDF_FONTS_GCS_PREFIX}/Playfair_Display/PlayfairDisplay-Medium.ttf`
+PDFKit で日本語を正しく表示するには、日本語フォントが必要です。
 
-If fonts are missing, the function still runs, but Japanese text may not render correctly in the PDF.
+必要な `.ttf` ファイルを、Storage バケット内の次のパスにアップロードしてください（固定: `resources/fonts`）:
 
-## Build / deploy
+- `resources/fonts/Noto_Sans_JP/NotoSansJP-Medium.ttf`
+- `resources/fonts/Noto_Serif_JP/NotoSerifJP-Medium.ttf`
+- `resources/fonts/Montserrat/Montserrat-Medium.ttf`
+- `resources/fonts/Playfair_Display/PlayfairDisplay-Medium.ttf`
 
-From repo root:
+フォントが無い場合でも関数自体は動作しますが、PDF 内の日本語が正しく描画されない可能性があります。
+
+## ビルド / デプロイ
+
+初回はfirebaseコマンドをインストールする必要があります。
+cd functions
+npm i -D firebase-tools
+npx firebase login
+npx firebase projects:list
+npx firebase use campuscalendar-dev
+
+リポジトリのルートで実行します:
 
 - `cd functions && npm i`
 - `npm run build`
 - `npm run deploy`
-

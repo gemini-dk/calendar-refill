@@ -1,6 +1,8 @@
+import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
 import { renderPdfToBuffer } from "./pdfutils";
+import { a5SizePt, mmToPt } from "./pdfutils";
 import { type A5Weekly1Day, drawA5Weekly1 } from "./templates/a5Weekly1";
 import type { PdfFontFlags } from "./fonts";
 
@@ -18,6 +20,12 @@ type CalendarTermData = {
   name?: string;
   termName?: string;
 };
+
+function getDb() {
+  const existing = getApps()[0];
+  const app = existing ? existing : initializeApp();
+  return getFirestore(app);
+}
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const toIsoUtc = (d: Date) =>
@@ -81,7 +89,7 @@ async function fetchCalendarDayMap(params: {
   isoDates: string[];
 }) {
   const { fiscalYear, calendarId, isoDates } = params;
-  const db = getFirestore();
+  const db = getDb();
   const daysCol = db
     .collection(`calendars_${fiscalYear}`)
     .doc(calendarId)
@@ -123,7 +131,7 @@ async function fetchCalendarDayMap(params: {
 
 async function fetchCalendarTermNameById(params: { fiscalYear: string; calendarId: string }) {
   const { fiscalYear, calendarId } = params;
-  const db = getFirestore();
+  const db = getDb();
   const snap = await db
     .collection(`calendars_${fiscalYear}`)
     .doc(calendarId)
@@ -156,7 +164,7 @@ async function renderWeekly1Pdf(params: {
   }
 
   return renderPdfToBuffer(doc, () => {
-    doc.addPage({ margin: 0 });
+    doc.addPage({ size: a5SizePt(), margin: 0 });
     doc.save();
     doc.fillColor("#6B7280");
     doc.fillOpacity(0.15);
@@ -172,10 +180,17 @@ async function renderWeekly1Pdf(params: {
     });
     doc.restore();
 
+    const fontProbeText = "あいうえおabcABC123漢字";
+    if (fonts.notoSansJp) doc.font("jpGothic");
+    doc.fillOpacity(1);
+    doc.fillColor("#111827");
+    doc.fontSize(10);
+    doc.text(fontProbeText, mmToPt(10), pageHeight - mmToPt(12), { lineBreak: false });
+
     let pageNumber = 1;
     for (let offset = 0; offset < days.length; offset += 7) {
       const week = days.slice(offset, offset + 7);
-      doc.addPage({ margin: 0 });
+      doc.addPage({ size: a5SizePt(), margin: 0 });
       drawA5Weekly1(doc, { pageNumber, days: week, fonts });
       pageNumber += 1;
     }
@@ -227,4 +242,3 @@ export async function generateSystemNotebookPdfBuffer(params: {
 
   return renderWeekly1Pdf({ doc, days, buyerEmail, fonts });
 }
-

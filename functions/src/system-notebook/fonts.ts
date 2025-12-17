@@ -2,7 +2,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import type { Bucket } from "firebase-admin/storage";
+import type { Bucket } from "@google-cloud/storage";
 
 type RegisterFontDoc = {
   registerFont: (name: string, src: string) => void;
@@ -14,6 +14,8 @@ export type PdfFontFlags = {
   notoSansJp: boolean;
   notoSerifJp: boolean;
 };
+
+const FONTS_GCS_PREFIX = "refills/fonts";
 
 const ensureDir = async (dir: string) => {
   await fs.promises.mkdir(dir, { recursive: true });
@@ -31,7 +33,7 @@ const downloadIfMissing = async (bucket: Bucket, gcsPath: string, localPath: str
 };
 
 export async function registerPdfFonts(params: { bucket: Bucket; doc: RegisterFontDoc }) {
-  const prefix = (process.env.PDF_FONTS_GCS_PREFIX ?? "resources/fonts").replace(/\/+$/, "");
+  const prefix = FONTS_GCS_PREFIX.replace(/\/+$/, "");
   const baseDir = path.join(os.tmpdir(), "calendar-refill-fonts");
 
   const fonts: Array<{ name: keyof PdfFontFlags; alias: string; rel: string }> = [
@@ -75,4 +77,3 @@ export async function registerPdfFonts(params: { bucket: Bucket; doc: RegisterFo
 
   return result;
 }
-

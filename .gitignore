@@ -21,6 +21,7 @@
 /build
 functions/lib
 functions/node_modules
+functions/firebase-debug.log
 
 # misc
 .DS_Store
