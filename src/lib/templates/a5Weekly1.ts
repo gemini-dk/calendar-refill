@@ -44,38 +44,37 @@ const DAY_LABEL_WIDTH_MM = 9;
 const WEEKDAY_GAP_MM = 0;
 const EVENT_FONT_SIZE_PT = 7;
 const EVENT_BOTTOM_PADDING_MM = 1.5;
-const HOLIDAY_EVENT_GAP_MM = 0;
+const DESCRIPTION_GAP_MM = 0;
 const HEADER_YEAR_GAP_MM = 1.2;
 
-const addDaysUtc = (dateUtc: Date, days: number) =>
-  new Date(Date.UTC(dateUtc.getUTCFullYear(), dateUtc.getUTCMonth(), dateUtc.getUTCDate() + days));
-
-const monthLabelForRangeUtc = (startUtc: Date, days: number) => {
-  const months: number[] = [];
-  for (let i = 0; i < days; i++) {
-    const d = addDaysUtc(startUtc, i);
-    const m = d.getUTCMonth();
-    if (!months.includes(m)) months.push(m);
-  }
-  return months.map((m) => monthNames[m]).join(",");
+const parseIsoDateUtc = (iso: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) throw new Error(`Invalid date format: ${iso}`);
+  const year = Number(match[1]);
+  const month1 = Number(match[2]);
+  const day = Number(match[3]);
+  return new Date(Date.UTC(year, month1 - 1, day));
 };
 
-const yearLabelForRangeUtc = (startUtc: Date, days: number) => {
-  const years: number[] = [];
-  for (let i = 0; i < days; i++) {
-    const d = addDaysUtc(startUtc, i);
-    const y = d.getUTCFullYear();
-    if (!years.includes(y)) years.push(y);
-  }
-  return years.join("/");
+const weekdayIndexMon0 = (dateUtc: Date) => (dateUtc.getUTCDay() + 6) % 7; // Mon=0 ... Sun=6
+
+export type A5Weekly1Day = {
+  date: string; // yyyy-mm-dd
+  isHoliday: boolean;
+  descriptionA: string;
+  descriptionB: string;
 };
 
 export type A5Weekly1Options = {
   pageNumber: number;
-  startDateUtc: Date; // Monday
+  days: A5Weekly1Day[]; // Monday start, at least 7 items
 };
 
 export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options) => {
+  if (options.days.length < 7) {
+    throw new Error(`drawA5Weekly1 requires at least 7 days, got ${options.days.length}`);
+  }
+
   const [pageWidth, pageHeight] = a5SizePt();
   const margins = marginsA5Weekly1Pt(options.pageNumber);
 
@@ -128,8 +127,9 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
   hLine(gridTop + gridHeight, GRID_LINE_WIDTH_THICK);
 
   // Header text (year + month name(s))
-  const yearLabel = yearLabelForRangeUtc(options.startDateUtc, 7);
-  const monthLabel = monthLabelForRangeUtc(options.startDateUtc, 7);
+  const firstDateUtc = parseIsoDateUtc(options.days[0].date);
+  const yearLabel = String(firstDateUtc.getUTCFullYear());
+  const monthLabel = monthNames[firstDateUtc.getUTCMonth()];
   const headerX = left + mmToPt(CELL_PADDING_MM);
   const headerCenterY = top + headerHeight / 2;
 
@@ -153,23 +153,11 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
     lineBreak: false,
   });
 
-  const holidayByIndex: Partial<Record<number, string>> = {
-    3: "勤労感謝の日",
-  };
-
-  const eventsByIndex: Partial<Record<number, string>> = {
-    0: "春休み",
-    1: "春休み",
-    2: "前期 水曜授業 (1)",
-    3: "前期 木曜授業 (1)",
-    4: "前期 金曜授業 (1)",
-    5: "前期 土曜授業 (1)",
-    6: "前期 日曜",
-  };
-
   // Day rows: Monday (top) -> Sunday (bottom)
   for (let i = 0; i < 7; i++) {
-    const dateUtc = addDaysUtc(options.startDateUtc, i);
+    const day = options.days[i];
+    const dateUtc = parseIsoDateUtc(day.date);
+    const weekdayIndex = weekdayIndexMon0(dateUtc);
     const dayOfMonth = dateUtc.getUTCDate();
 
     const rowY = gridTop + rowHeight * i;
@@ -178,8 +166,9 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
     const labelWidth = mmToPt(DAY_LABEL_WIDTH_MM);
 
     if (hasMontserrat) doc.font("msMedium");
-    if (i === 5) doc.fillColor(COLOR_SAT);
-    else if (i === 6) doc.fillColor(COLOR_SUN);
+    if (day.isHoliday) doc.fillColor(COLOR_SUN);
+    else if (weekdayIndex === 5) doc.fillColor(COLOR_SAT);
+    else if (weekdayIndex === 6) doc.fillColor(COLOR_SUN);
     else doc.fillColor(COLOR_TEXT_DEFAULT);
     doc.fontSize(DATE_FONT_SIZE_PT);
     const dateLineHeight = doc.currentLineHeight(true);
@@ -191,32 +180,33 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
 
     doc.fontSize(WEEKDAY_FONT_SIZE_PT);
     const weekdayLineHeight = doc.currentLineHeight(true);
-    doc.text(weekday3[i], x, y + dateLineHeight + mmToPt(WEEKDAY_GAP_MM), {
+    doc.text(weekday3[weekdayIndex], x, y + dateLineHeight + mmToPt(WEEKDAY_GAP_MM), {
       width: labelWidth,
       align: "center",
       lineBreak: false,
     });
 
-    const eventText = eventsByIndex[i];
-    if (eventText) {
-      doc.fillColor(COLOR_TEXT_DEFAULT);
-      if (hasGothic) doc.font("jpGothic");
-      doc.fontSize(EVENT_FONT_SIZE_PT);
-      const eventLineHeight = doc.currentLineHeight(true);
-      const rowBottomY = rowY + rowHeight;
-      const eventY = rowBottomY - mmToPt(EVENT_BOTTOM_PADDING_MM) - eventLineHeight;
+    const descriptionA = day.descriptionA?.trim();
+    const descriptionB = day.descriptionB?.trim();
+    if (!descriptionA && !descriptionB) continue;
 
-      const holidayText = holidayByIndex[i];
-      if (holidayText) {
-        const holidayY = eventY - mmToPt(HOLIDAY_EVENT_GAP_MM) - eventLineHeight;
-        doc.text(holidayText, x, holidayY, {
-          width: contentWidth,
-          align: "left",
-          lineBreak: false,
-        });
-      }
+    doc.fillColor(COLOR_TEXT_DEFAULT);
+    if (hasGothic) doc.font("jpGothic");
+    doc.fontSize(EVENT_FONT_SIZE_PT);
+    const lineHeight = doc.currentLineHeight(true);
+    const rowBottomY = rowY + rowHeight;
+    const bottomY = rowBottomY - mmToPt(EVENT_BOTTOM_PADDING_MM) - lineHeight;
 
-      doc.text(eventText, x, eventY, {
+    if (descriptionB) {
+      doc.text(descriptionB, x, bottomY, {
+        width: contentWidth,
+        align: "left",
+        lineBreak: false,
+      });
+    }
+    if (descriptionA) {
+      const y2 = descriptionB ? bottomY - mmToPt(DESCRIPTION_GAP_MM) - lineHeight : bottomY;
+      doc.text(descriptionA, x, y2, {
         width: contentWidth,
         align: "left",
         lineBreak: false,
