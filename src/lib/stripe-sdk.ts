@@ -1,5 +1,5 @@
 const STRIPE_API_BASE = "https://api.stripe.com";
-const DEFAULT_API_VERSION = "2024-11-20";
+const DEFAULT_API_VERSION = "2025-12-15.clover";
 
 type RequestMethod = "GET" | "POST";
 
