@@ -19,10 +19,13 @@
 
 # production
 /build
+functions/lib
+functions/node_modules
 
 # misc
 .DS_Store
 *.pem
+.firebase
 
 # debug
 npm-debug.log*
