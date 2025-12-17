@@ -40,7 +40,7 @@ export default function RefillEditPage() {
                   : "学事予定IDを選択すると押下できます"
               }
             >
-              システム手帳PDFを作成
+              サンプルPDFを作成
             </button>
             <button
               type="button"
