@@ -13,10 +13,9 @@ const FIVE_MINUTES_IN_SECONDS = 60 * 5;
 
 const SUPPORTED_EVENT_TYPES = new Set<StripeEventType>([
   "checkout.session.completed",
-  "payment_intent.succeeded",
 ]);
 
-type StripeEventType = "checkout.session.completed" | "payment_intent.succeeded";
+type StripeEventType = "checkout.session.completed";
 
 type StripeEvent = {
   id: string;
@@ -25,6 +24,10 @@ type StripeEvent = {
     object: {
       id?: string;
       metadata?: Record<string, string | null | undefined>;
+      customer_email?: string | null;
+      customer_details?: {
+        email?: string | null;
+      };
     } & Record<string, unknown>;
   };
 };
@@ -39,6 +42,7 @@ type PaymentMetadata = {
   calendarId: string;
   fiscalYear: string;
   sessionId?: string;
+  buyerEmail?: string;
 };
 
 function parseStripeSignatureHeader(header: string | null): StripeSignature | null {
@@ -96,10 +100,14 @@ function extractMetadata(event: StripeEvent): PaymentMetadata | null {
   const calendarId = metadata.calendarId?.trim();
   const fiscalYear = metadata.fiscalYear?.trim();
   const sessionId = metadata.sessionId?.trim() || event.data.object.id;
+  const buyerEmail =
+    event.data.object.customer_details?.email?.trim() ||
+    event.data.object.customer_email?.trim() ||
+    undefined;
 
   if (!userId || !calendarId || !fiscalYear) return null;
 
-  return { userId, calendarId, fiscalYear, sessionId };
+  return { userId, calendarId, fiscalYear, sessionId, buyerEmail };
 }
 
 async function enqueuePdfGenerationJob(metadata: PaymentMetadata) {
@@ -122,6 +130,7 @@ async function enqueuePdfGenerationJob(metadata: PaymentMetadata) {
       calendarId: metadata.calendarId,
       fiscalYear: metadata.fiscalYear,
       sessionId: metadata.sessionId,
+      buyerEmail: metadata.buyerEmail,
       source: "stripe_webhook",
     }),
   });
@@ -165,12 +174,15 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDb();
-  const docRef = db.collection("stripe").doc(metadata.userId);
+  const userDocRef = db.collection("stripe").doc(metadata.userId);
+  const sessionDocRef = metadata.sessionId
+    ? db.collection("stripe_sessions").doc(metadata.sessionId)
+    : null;
   let isDuplicate = false;
 
   try {
     await db.runTransaction(async (tx) => {
-      const snap = await tx.get(docRef);
+      const snap = await tx.get(userDocRef);
       const data = snap.data() ?? {};
       const processedEventIds = Array.isArray((data as { processedEventIds?: unknown }).processedEventIds)
         ? ((data as { processedEventIds?: string[] }).processedEventIds ?? [])
@@ -181,19 +193,28 @@ export async function POST(req: NextRequest) {
         return;
       }
 
-      tx.set(
-        docRef,
-        {
-          status: "paid_processing",
-          statusUpdatedAt: FieldValue.serverTimestamp(),
-          sessionId: metadata.sessionId,
-          calendarId: metadata.calendarId,
-          fiscalYear: metadata.fiscalYear,
-          lastEventId: event.id,
-          processedEventIds: FieldValue.arrayUnion(event.id),
-        },
-        { merge: true },
-      );
+      const baseUpdate = {
+        status: "paid_processing",
+        statusUpdatedAt: FieldValue.serverTimestamp(),
+        sessionId: metadata.sessionId,
+        calendarId: metadata.calendarId,
+        fiscalYear: metadata.fiscalYear,
+        lastEventId: event.id,
+        processedEventIds: FieldValue.arrayUnion(event.id),
+      };
+
+      tx.set(userDocRef, baseUpdate, { merge: true });
+
+      if (sessionDocRef && metadata.sessionId) {
+        tx.set(
+          sessionDocRef,
+          {
+            userId: metadata.userId,
+            ...baseUpdate,
+          },
+          { merge: true },
+        );
+      }
     });
   } catch (error) {
     console.error("Failed to update Firestore", error);

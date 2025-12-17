@@ -25,11 +25,17 @@ type StripeLineItem = {
   quantity?: number;
 };
 
+type StripePaymentIntentData = {
+  metadata?: StripeMetadata;
+};
+
 type StripeCheckoutSessionParams = {
   customer?: string;
+  customer_creation?: "always" | "if_required";
   mode: "payment";
   line_items: StripeLineItem[];
   metadata?: StripeMetadata;
+  payment_intent_data?: StripePaymentIntentData;
   success_url: string;
   cancel_url: string;
 };

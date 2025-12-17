@@ -1,21 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   AcademicScheduleSelector,
   SelectedAcademicSchedule,
 } from "@/components/AcademicScheduleSelector";
 
+const ANONYMOUS_USER_ID_STORAGE_KEY = "calendar-refill:anonymous-user-id";
+
+function getOrCreateAnonymousUserId(): string {
+  if (typeof window === "undefined") return "anonymous";
+
+  const existing = window.localStorage.getItem(ANONYMOUS_USER_ID_STORAGE_KEY);
+  if (existing) return existing;
+
+  const generated =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `anon_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+  window.localStorage.setItem(ANONYMOUS_USER_ID_STORAGE_KEY, generated);
+  return generated;
+}
+
 export default function RefillEditPage() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selection, setSelection] = useState<SelectedAcademicSchedule | null>(null);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [anonymousUserId, setAnonymousUserId] = useState<string | null>(null);
   const canCreateSystemNotebookPdf = Boolean(selection?.calendarId && selection?.fiscalYear);
 
+  useEffect(() => {
+    setAnonymousUserId(getOrCreateAnonymousUserId());
+  }, []);
+
   const handleCheckout = async () => {
-    if (!selection) return;
+    if (!selection || !anonymousUserId) return;
 
     setIsPurchasing(true);
     setPurchaseError(null);
@@ -28,8 +50,7 @@ export default function RefillEditPage() {
           calendarId: selection.calendarId,
           fiscalYear: selection.fiscalYear,
           universityCode: selection.universityCode,
-          userId: "demo-user",
-          email: "demo@example.com",
+          userId: anonymousUserId,
         }),
       });
 

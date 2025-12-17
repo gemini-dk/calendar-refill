@@ -5,26 +5,6 @@ import Stripe from "@/lib/stripe-sdk";
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID;
 
-async function findOrCreateCustomer(stripe: Stripe, userId: string, email: string) {
-  try {
-    const searchResult = await stripe.customers.search({
-      query: `email:'${email}' AND metadata['uid']:'${userId}'`,
-      limit: 1,
-    });
-
-    if (searchResult.data.length > 0) {
-      return searchResult.data[0];
-    }
-  } catch (error) {
-    console.error("Failed to search customer", error);
-  }
-
-  return stripe.customers.create({
-    email,
-    metadata: { uid: userId },
-  });
-}
-
 export async function POST(req: NextRequest) {
   if (!STRIPE_SECRET_KEY || !STRIPE_PRICE_ID) {
     return NextResponse.json(
@@ -45,11 +25,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { userId, email, calendarId, fiscalYear, universityCode } = payload;
+  const { userId, calendarId, fiscalYear, universityCode } = payload;
 
-  if (!userId || !email || !calendarId || !fiscalYear || !universityCode) {
+  if (!userId || !calendarId || !fiscalYear || !universityCode) {
     return NextResponse.json(
-      { error: "userId, email, calendarId, fiscalYear, universityCode are required" },
+      { error: "userId, calendarId, fiscalYear, universityCode are required" },
       { status: 400 },
     );
   }
@@ -58,10 +38,7 @@ export async function POST(req: NextRequest) {
   const origin = new URL(req.url).origin;
 
   try {
-    const customer = await findOrCreateCustomer(stripe, userId, email);
-
     const session = await stripe.checkout.sessions.create({
-      customer: customer.id,
       mode: "payment",
       line_items: [
         {
@@ -69,8 +46,14 @@ export async function POST(req: NextRequest) {
           quantity: 1,
         },
       ],
+      customer_creation: "always",
       metadata: { userId, calendarId, fiscalYear, universityCode },
-      success_url: `${origin}/purchase/complete?session_id={CHECKOUT_SESSION_ID}`,
+      payment_intent_data: {
+        metadata: { userId, calendarId, fiscalYear, universityCode },
+      },
+      success_url: `${origin}/purchase/complete?session_id={CHECKOUT_SESSION_ID}&user_id=${encodeURIComponent(
+        userId,
+      )}`,
       cancel_url: `${origin}/refill-edit`,
     });
 

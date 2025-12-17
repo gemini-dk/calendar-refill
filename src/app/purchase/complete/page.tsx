@@ -1,11 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { onAuthStateChanged, type User } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
-
-import { firebaseAuth, firestore } from "@/lib/firebase-client";
 
 type StripeDocument = {
   status?: string;
@@ -30,14 +27,9 @@ function StatusIndicator({ label, description }: { label: string; description: s
   );
 }
 
-export default function PurchaseCompletePage({
-  searchParams,
-}: {
-  searchParams: { session_id?: string };
-}) {
-  const sessionId = searchParams.session_id ?? "";
-  const [user, setUser] = useState<User | null>(null);
-  const [authChecked, setAuthChecked] = useState(false);
+export default function PurchaseCompletePage() {
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("session_id")?.trim() ?? "";
   const [status, setStatus] = useState<string>("loading");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,41 +67,51 @@ export default function PurchaseCompletePage({
   }, [downloadUrl, status]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      firebaseAuth,
-      (currentUser) => {
-        setUser(currentUser);
-        setAuthChecked(true);
-      },
-      (authError) => {
-        setError(authError.message);
-        setAuthChecked(true);
-      },
-    );
+    if (!sessionId) return undefined;
 
-    return () => unsubscribe();
-  }, []);
+    let isCancelled = false;
+    let pollHandle: ReturnType<typeof setInterval> | null = null;
 
-  useEffect(() => {
-    if (!user?.uid) return undefined;
+    const poll = async () => {
+      if (isCancelled) return;
 
-    const stripeDoc = doc(firestore, "stripe", user.uid);
+      try {
+        const response = await fetch(
+          `/api/purchase-status?session_id=${encodeURIComponent(sessionId)}`,
+          { cache: "no-store" },
+        );
+        const data = (await response.json()) as StripeDocument & { error?: string };
 
-    const unsubscribe = onSnapshot(
-      stripeDoc,
-      (snapshot) => {
-        const data = snapshot.data() as StripeDocument | undefined;
+        if (!response.ok) {
+          throw new Error(data?.error ?? "購入状況を取得できませんでした");
+        }
 
+        if (isCancelled) return;
         setStatus(data?.status ?? "loading");
         setDownloadUrl(data?.downloadUrl?.url ?? null);
-      },
-      (snapshotError) => {
-        setError(snapshotError.message);
-      },
-    );
 
-    return () => unsubscribe();
-  }, [user?.uid]);
+        if (data?.status === "failed" || data?.downloadUrl?.url) {
+          if (pollHandle) clearInterval(pollHandle);
+          pollHandle = null;
+        }
+      } catch (pollError) {
+        if (isCancelled) return;
+        setError(
+          pollError instanceof Error
+            ? pollError.message
+            : "購入状況の取得に失敗しました。しばらくしてから再度お試しください。",
+        );
+      }
+    };
+
+    void poll();
+    pollHandle = setInterval(poll, 2500);
+
+    return () => {
+      isCancelled = true;
+      if (pollHandle) clearInterval(pollHandle);
+    };
+  }, [sessionId]);
 
   if (!sessionId) {
     return (
@@ -146,26 +148,13 @@ export default function PurchaseCompletePage({
           <div className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">決済完了</div>
         </div>
 
-        {!authChecked && (
-          <StatusIndicator label="サインインを確認中" description="ユーザー情報を確認しています。少々お待ちください。" />
-        )}
-
-        {authChecked && !user && (
-          <StatusIndicator
-            label="ログインしてください"
-            description="購入履歴を確認するためにログインが必要です。サインイン後にページを再読み込みしてください。"
-          />
-        )}
-
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             エラーが発生しました: {error}
           </div>
         )}
 
-        {authChecked && user && (
-          <StatusIndicator label={statusLabel} description={statusDescription} />
-        )}
+        <StatusIndicator label={statusLabel} description={statusDescription} />
 
         {downloadUrl && (
           <div className="flex flex-col gap-3 rounded-lg border border-emerald-100 bg-emerald-50 p-4">
