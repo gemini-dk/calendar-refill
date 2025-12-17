@@ -1,0 +1,26 @@
+{
+  "name": "calendar-refill-functions",
+  "private": true,
+  "main": "lib/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --project campuscalendar-dev --only functions",
+    "prod": "firebase deploy --project campuscalendar-prod --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.1",
+    "firebase-functions": "^6.4.0",
+    "pdfkit": "^0.17.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/pdfkit": "^0.17.0",
+    "firebase-tools": "^15.0.0",
+    "typescript": "^5"
+  }
+}

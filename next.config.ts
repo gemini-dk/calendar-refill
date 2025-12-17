@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  outputFileTracingRoot: __dirname,
   serverExternalPackages: ["pdfkit"],
   images: {
     remotePatterns: [
@@ -10,6 +11,8 @@ const nextConfig: NextConfig = {
         hostname: "images.unsplash.com",
       },
     ],
+  turbopack: {
+    root: __dirname,
   },
 };
 
