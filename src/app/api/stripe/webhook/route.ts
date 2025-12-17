@@ -115,9 +115,7 @@ async function enqueuePdfGenerationJob(metadata: PaymentMetadata) {
     process.env.PDF_GENERATION_QUEUE_URL || process.env.PDF_FULL_GENERATION_QUEUE_URL;
   const queueToken = process.env.PDF_GENERATION_QUEUE_TOKEN;
 
-  if (!queueUrl) {
-    throw new Error("PDF generation queue endpoint is not configured.");
-  }
+  if (!queueUrl) return false;
 
   const response = await fetch(queueUrl, {
     method: "POST",
@@ -139,6 +137,8 @@ async function enqueuePdfGenerationJob(metadata: PaymentMetadata) {
     const text = await response.text();
     throw new Error(`Failed to enqueue PDF generation job: ${response.status} ${text}`);
   }
+
+  return true;
 }
 
 export async function POST(req: NextRequest) {
@@ -173,6 +173,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing metadata" }, { status: 400 });
   }
 
+  const bucketName =
+    process.env.FIREBASE_STORAGE_BUCKET?.trim() ??
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() ??
+    null;
+
   const db = getDb();
   const userDocRef = db.collection("stripe").doc(metadata.userId);
   const sessionDocRef = metadata.sessionId
@@ -199,6 +204,8 @@ export async function POST(req: NextRequest) {
         sessionId: metadata.sessionId,
         calendarId: metadata.calendarId,
         fiscalYear: metadata.fiscalYear,
+        BUCKET: bucketName,
+        buyerEmail: metadata.buyerEmail ?? null,
         lastEventId: event.id,
         processedEventIds: FieldValue.arrayUnion(event.id),
       };
@@ -226,7 +233,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await enqueuePdfGenerationJob(metadata);
+    const enqueued = await enqueuePdfGenerationJob(metadata);
+    if (!enqueued) {
+      console.warn(
+        "PDF generation queue endpoint is not configured; skipping enqueue and relying on out-of-band processor (e.g. Firestore trigger).",
+      );
+    }
   } catch (error) {
     console.error("Failed to enqueue PDF generation job", error);
     return NextResponse.json({ error: "Failed to enqueue job" }, { status: 500 });
