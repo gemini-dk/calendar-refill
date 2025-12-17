@@ -1,8 +1,10 @@
+import path from "path";
 import PDFDocument from "pdfkit";
 import { NextRequest, NextResponse } from "next/server";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
-import { getDb } from "@/lib/firebase-admin";
-import { a5SizePt, renderPdfToBuffer } from "@/lib/pdfutils";
+import { getDb, getStorageBucket } from "@/lib/firebase-admin";
+import { a5SizePt, registerFontIfExists, renderPdfToBuffer } from "@/lib/pdfutils";
 import { type A5Weekly1Day, drawA5Weekly1 } from "@/lib/templates/a5Weekly1";
 
 export const runtime = "nodejs";
@@ -56,16 +58,16 @@ const weekdayToJa = (weekday: number) => {
   }
 };
 
-const buildAprilRangeUtc = (fiscalYear: number) => {
+const buildFiscalYearRangeUtc = (fiscalYear: number) => {
   const aprilFirst = new Date(Date.UTC(fiscalYear, 3, 1));
-  const dow = aprilFirst.getUTCDay(); // 0=Sun..6=Sat
-  const sinceMonday = (dow + 6) % 7; // Mon=0..Sun=6
-  const start = addDaysUtc(aprilFirst, -(sinceMonday === 0 ? 7 : sinceMonday));
+  const startDow = aprilFirst.getUTCDay(); // 0=Sun..6=Sat
+  const daysSinceMonday = (startDow + 6) % 7; // Mon=0..Sun=6
+  const start = addDaysUtc(aprilFirst, -daysSinceMonday);
 
-  const april31 = new Date(Date.UTC(fiscalYear, 4, 1)); // 4/31 == 5/1
-  const endDow = april31.getUTCDay();
+  const marchThirtyFirst = new Date(Date.UTC(fiscalYear + 1, 2, 31));
+  const endDow = marchThirtyFirst.getUTCDay();
   const toSunday = (7 - endDow) % 7; // 0 if already Sunday
-  const end = addDaysUtc(april31, toSunday);
+  const end = addDaysUtc(marchThirtyFirst, toSunday);
 
   return { start, end };
 };
@@ -145,9 +147,13 @@ async function fetchCalendarTermNameById(params: { fiscalYear: string; calendarI
 const renderWeekly1Pdf = async (request: {
   days: A5Weekly1Day[];
   startPageNumber?: number;
+  buyerName?: string;
+  buyerEmail?: string;
 }) => {
   const startPageNumber = request.startPageNumber ?? 1;
   const days = request.days;
+  const buyerName = request.buyerName?.trim();
+  const buyerEmail = request.buyerEmail?.trim();
 
   if (!Array.isArray(days) || days.length === 0) {
     throw new Error("days must be a non-empty array");
@@ -158,6 +164,26 @@ const renderWeekly1Pdf = async (request: {
 
   const doc = new PDFDocument({ autoFirstPage: false, margin: 0 });
   const pdf = await renderPdfToBuffer(doc, () => {
+    const fontsDir = path.join(process.cwd(), "resources", "fonts");
+    const notoSerifMedium = path.join(fontsDir, "Noto_Serif_JP", "NotoSerifJP-Medium.ttf");
+    const hasSerif = registerFontIfExists(doc, "jpSerif", notoSerifMedium);
+
+    doc.addPage({ size: a5SizePt(), margin: 0 });
+    doc.save();
+    doc.fillColor("#6B7280");
+    doc.fillOpacity(0.15);
+    if (hasSerif) doc.font("jpSerif");
+    doc.fontSize(32);
+    const lines = [buyerName, buyerEmail].filter(Boolean);
+    const watermarkText = lines.length > 0 ? lines.join("\n") : "Buyer";
+    const [pageWidth, pageHeight] = a5SizePt();
+    doc.rotate(-18, { origin: [pageWidth / 2, pageHeight / 2] });
+    doc.text(watermarkText, pageWidth * 0.15, pageHeight * 0.35, {
+      width: pageWidth * 0.7,
+      align: "center",
+    });
+    doc.restore();
+
     let pageNumber = startPageNumber;
     for (let offset = 0; offset < days.length; offset += 7) {
       const week = days.slice(offset, offset + 7);
@@ -175,6 +201,9 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const fiscalYear = searchParams.get("year")?.trim();
   const calendarId = searchParams.get("calendarId")?.trim();
+  const userId = searchParams.get("userId")?.trim();
+  const buyerName = searchParams.get("buyerName")?.trim();
+  const buyerEmail = searchParams.get("buyerEmail")?.trim();
 
   if (!fiscalYear || !/^\d{4}$/.test(fiscalYear) || !calendarId) {
     return NextResponse.json(
@@ -183,7 +212,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { start, end } = buildAprilRangeUtc(Number(fiscalYear));
+  const { start, end } = buildFiscalYearRangeUtc(Number(fiscalYear));
   const isoDates = buildIsoDatesUtcInclusive(start, end);
   const termNameById = await fetchCalendarTermNameById({ fiscalYear, calendarId });
   const { getForIso } = await fetchCalendarDayMap({ fiscalYear, calendarId, isoDates });
@@ -214,12 +243,62 @@ export async function GET(req: NextRequest) {
     return { date: iso, isHoliday, descriptionA, descriptionB };
   });
 
-  const pdf = await renderWeekly1Pdf({ days, startPageNumber: 1 });
+  const pdf = await renderWeekly1Pdf({
+    days,
+    startPageNumber: 1,
+    buyerName,
+    buyerEmail,
+  });
+
+  if (userId) {
+    try {
+      const bucket = getStorageBucket();
+      const db = getDb();
+      const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
+      const filePath = `system-notebook/${userId}/${fiscalYear}-${calendarId}-${Date.now()}.pdf`;
+      const file = bucket.file(filePath);
+
+      await file.save(pdf, {
+        contentType: "application/pdf",
+        resumable: false,
+        metadata: {
+          metadata: {
+            calendarId,
+            fiscalYear,
+            userId,
+          },
+        },
+      });
+
+      const [downloadUrl] = await file.getSignedUrl({
+        action: "read",
+        expires: expiresAt,
+      });
+
+      await db
+        .collection("stripe")
+        .doc(userId)
+        .set(
+          {
+            downloadUrl: {
+              url: downloadUrl,
+              expiresAt: Timestamp.fromDate(expiresAt),
+              path: filePath,
+            },
+            downloadUrlUpdatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+    } catch (error) {
+      console.error("Failed to save PDF", error);
+      return NextResponse.json({ error: "Failed to save PDF" }, { status: 500 });
+    }
+  }
 
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="system-notebook-${fiscalYear}-04-${calendarId}.pdf"`,
+      "Content-Disposition": `attachment; filename="system-notebook-${fiscalYear}-${calendarId}.pdf"`,
       "Cache-Control": "no-store",
     },
   });
