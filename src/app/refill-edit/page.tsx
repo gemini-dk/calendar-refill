@@ -10,6 +10,7 @@ import {
 export default function RefillEditPage() {
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selection, setSelection] = useState<SelectedAcademicSchedule | null>(null);
+  const canCreateSystemNotebookPdf = Boolean(selection?.calendarId && selection?.fiscalYear);
 
   return (
     <div className="min-h-screen bg-zinc-50 py-10 px-6">
@@ -19,13 +20,36 @@ export default function RefillEditPage() {
             <p className="text-sm text-gray-500">PDF リフィル作成</p>
             <h1 className="text-2xl font-semibold text-gray-900">リフィル編集</h1>
           </div>
-          <button
-            type="button"
-            onClick={() => setSelectorOpen(true)}
-            className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
-          >
-            学事予定を選択
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <button
+              type="button"
+              disabled={!canCreateSystemNotebookPdf}
+              onClick={() => {
+                if (!selection) return;
+                const url = `/api/system-notebook-pdf?year=${encodeURIComponent(selection.fiscalYear)}&calendarId=${encodeURIComponent(selection.calendarId)}`;
+                window.open(url, "_blank");
+              }}
+              className={`inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium shadow-sm transition ${
+                canCreateSystemNotebookPdf
+                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                  : "cursor-not-allowed bg-gray-200 text-gray-500"
+              }`}
+              title={
+                canCreateSystemNotebookPdf
+                  ? "指定年度の4月分のシステム手帳PDFを作成します"
+                  : "学事予定IDを選択すると押下できます"
+              }
+            >
+              システム手帳PDFを作成
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectorOpen(true)}
+              className="inline-flex items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
+            >
+              学事予定を選択
+            </button>
+          </div>
         </div>
 
         <p className="text-sm text-gray-600">

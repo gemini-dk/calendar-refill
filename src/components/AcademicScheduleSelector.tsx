@@ -78,13 +78,15 @@ export function AcademicScheduleSelector({
       return;
     }
 
+    const universityCode = selectedUniversity.code;
+
     async function fetchCalendars() {
       setIsLoadingCalendars(true);
       setCalendarsError(null);
 
       try {
         const response = await fetch(
-          `/api/calendars?year=${encodeURIComponent(fiscalYear)}&universityCode=${encodeURIComponent(selectedUniversity.code)}`,
+          `/api/calendars?year=${encodeURIComponent(fiscalYear)}&universityCode=${encodeURIComponent(universityCode)}`,
         );
 
         if (!response.ok) {
