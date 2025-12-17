@@ -25,6 +25,7 @@ const weekday3 = ["Mon", "Tue", "Wed", "Thr", "Fri", "Sat", "Sun"] as const;
 
 const HEADER_HEIGHT_MM = 7;
 const HEADER_FONT_SIZE_PT = 12;
+const HEADER_YEAR_FONT_SIZE_PT = 8;
 const DATE_FONT_SIZE_PT = 20;
 const WEEKDAY_FONT_SIZE_PT = 10;
 
@@ -43,6 +44,8 @@ const DAY_LABEL_WIDTH_MM = 9;
 const WEEKDAY_GAP_MM = 0;
 const EVENT_FONT_SIZE_PT = 7;
 const EVENT_BOTTOM_PADDING_MM = 1.5;
+const HOLIDAY_EVENT_GAP_MM = 0;
+const HEADER_YEAR_GAP_MM = 1.2;
 
 const addDaysUtc = (dateUtc: Date, days: number) =>
   new Date(Date.UTC(dateUtc.getUTCFullYear(), dateUtc.getUTCMonth(), dateUtc.getUTCDate() + days));
@@ -55,6 +58,16 @@ const monthLabelForRangeUtc = (startUtc: Date, days: number) => {
     if (!months.includes(m)) months.push(m);
   }
   return months.map((m) => monthNames[m]).join(",");
+};
+
+const yearLabelForRangeUtc = (startUtc: Date, days: number) => {
+  const years: number[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = addDaysUtc(startUtc, i);
+    const y = d.getUTCFullYear();
+    if (!years.includes(y)) years.push(y);
+  }
+  return years.join("/");
 };
 
 export type A5Weekly1Options = {
@@ -114,14 +127,45 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
   // Grid bottom（最下部の締め線＝日曜の下）を太線
   hLine(gridTop + gridHeight, GRID_LINE_WIDTH_THICK);
 
-  // Header text (month name(s))
+  // Header text (year + month name(s))
+  const yearLabel = yearLabelForRangeUtc(options.startDateUtc, 7);
   const monthLabel = monthLabelForRangeUtc(options.startDateUtc, 7);
+  const headerX = left + mmToPt(CELL_PADDING_MM);
+  const headerCenterY = top + headerHeight / 2;
+
   if (hasPlayfair) doc.font("pfMedium");
   doc.fillColor(COLOR_TEXT_DEFAULT).fontSize(HEADER_FONT_SIZE_PT);
-  const headerTextY = top + headerHeight / 2 - doc.currentLineHeight(true) / 2;
-  doc.text(monthLabel, left + mmToPt(CELL_PADDING_MM), headerTextY, {
+  const monthLineHeight = doc.currentLineHeight(true);
+
+  if (hasPlayfair) doc.font("pfMedium");
+  doc.fillColor(COLOR_TEXT_DEFAULT).fontSize(HEADER_YEAR_FONT_SIZE_PT);
+  const yearLineHeight = doc.currentLineHeight(true);
+
+  const monthY = headerCenterY - monthLineHeight / 2;
+  const yearY = monthY + monthLineHeight - yearLineHeight;
+
+  doc.text(yearLabel, headerX, yearY, { lineBreak: false });
+  const yearWidth = doc.widthOfString(yearLabel);
+
+  if (hasPlayfair) doc.font("pfMedium");
+  doc.fillColor(COLOR_TEXT_DEFAULT).fontSize(HEADER_FONT_SIZE_PT);
+  doc.text(monthLabel, headerX + yearWidth + mmToPt(HEADER_YEAR_GAP_MM), monthY, {
     lineBreak: false,
   });
+
+  const holidayByIndex: Partial<Record<number, string>> = {
+    3: "勤労感謝の日",
+  };
+
+  const eventsByIndex: Partial<Record<number, string>> = {
+    0: "春休み",
+    1: "春休み",
+    2: "前期 水曜授業 (1)",
+    3: "前期 木曜授業 (1)",
+    4: "前期 金曜授業 (1)",
+    5: "前期 土曜授業 (1)",
+    6: "前期 日曜",
+  };
 
   // Day rows: Monday (top) -> Sunday (bottom)
   for (let i = 0; i < 7; i++) {
@@ -146,21 +190,12 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
     });
 
     doc.fontSize(WEEKDAY_FONT_SIZE_PT);
+    const weekdayLineHeight = doc.currentLineHeight(true);
     doc.text(weekday3[i], x, y + dateLineHeight + mmToPt(WEEKDAY_GAP_MM), {
       width: labelWidth,
       align: "center",
       lineBreak: false,
     });
-
-    const eventsByIndex: Partial<Record<number, string>> = {
-      0: "春休み",
-      1: "春休み",
-      2: "前期 水曜授業 (1)",
-      3: "前期 木曜授業 (1)",
-      4: "前期 金曜授業 (1)",
-      5: "前期 土曜授業 (1)",
-      6: "前期 日曜",
-    };
 
     const eventText = eventsByIndex[i];
     if (eventText) {
@@ -170,6 +205,16 @@ export const drawA5Weekly1 = (doc: PDFKit.PDFDocument, options: A5Weekly1Options
       const eventLineHeight = doc.currentLineHeight(true);
       const rowBottomY = rowY + rowHeight;
       const eventY = rowBottomY - mmToPt(EVENT_BOTTOM_PADDING_MM) - eventLineHeight;
+
+      const holidayText = holidayByIndex[i];
+      if (holidayText) {
+        const holidayY = eventY - mmToPt(HOLIDAY_EVENT_GAP_MM) - eventLineHeight;
+        doc.text(holidayText, x, holidayY, {
+          width: contentWidth,
+          align: "left",
+          lineBreak: false,
+        });
+      }
 
       doc.text(eventText, x, eventY, {
         width: contentWidth,
