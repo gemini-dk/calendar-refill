@@ -9,15 +9,28 @@ export const runtime = "nodejs";
 
 type CalendarDayData = {
   isHoliday?: boolean;
+  type?: string;
   classWeekday?: number; // 1=Mon ... 7=Sun
   classOrder?: number;
+  termId?: string;
   nationalHolidayName?: string;
   isDeleted?: boolean;
+};
+
+type CalendarTermData = {
+  name?: string;
+  termName?: string;
 };
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const toIsoUtc = (d: Date) =>
   `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+
+const parseIsoDateUtc = (iso: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) throw new Error(`Invalid date format: ${iso}`);
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+};
 
 const addDaysUtc = (base: Date, days: number) =>
   new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate() + days));
@@ -111,6 +124,24 @@ async function fetchCalendarDayMap(params: {
   return { getForIso };
 }
 
+async function fetchCalendarTermNameById(params: { fiscalYear: string; calendarId: string }) {
+  const { fiscalYear, calendarId } = params;
+  const db = getDb();
+  const snap = await db
+    .collection(`calendars_${fiscalYear}`)
+    .doc(calendarId)
+    .collection("calendar_terms")
+    .get();
+
+  const map = new Map<string, string>();
+  for (const doc of snap.docs) {
+    const data = doc.data() as CalendarTermData;
+    const termName = (data.termName ?? data.name ?? "").trim();
+    map.set(doc.id, termName);
+  }
+  return map;
+}
+
 const renderWeekly1Pdf = async (request: {
   days: A5Weekly1Day[];
   startPageNumber?: number;
@@ -154,21 +185,29 @@ export async function GET(req: NextRequest) {
 
   const { start, end } = buildAprilRangeUtc(Number(fiscalYear));
   const isoDates = buildIsoDatesUtcInclusive(start, end);
+  const termNameById = await fetchCalendarTermNameById({ fiscalYear, calendarId });
   const { getForIso } = await fetchCalendarDayMap({ fiscalYear, calendarId, isoDates });
 
   const days: A5Weekly1Day[] = isoDates.map((iso) => {
     const record = getForIso(iso);
+    const realDow = parseIsoDateUtc(iso).getUTCDay(); // 0=Sun..6=Sat
     const isHoliday = record?.isHoliday === true;
 
     const classWeekday =
       typeof record?.classWeekday === "number" ? record.classWeekday : undefined;
     const classOrder =
       typeof record?.classOrder === "number" ? record.classOrder : undefined;
+    const termId = typeof record?.termId === "string" ? record.termId : undefined;
+    const termName = termId ? (termNameById.get(termId) ?? "") : "";
 
     const descriptionB =
-      classWeekday && classOrder
-        ? `${weekdayToJa(classWeekday)}授業日 (${classOrder})`
-        : "";
+      realDow === 0
+        ? termName
+        : record?.type === "授業日"
+        ? classWeekday && classOrder
+          ? `${termName ? `${termName} ` : ""}${weekdayToJa(classWeekday)}授業日 (${classOrder})`
+          : termName
+        : termName;
     const descriptionA =
       typeof record?.nationalHolidayName === "string" ? record.nationalHolidayName : "";
 
